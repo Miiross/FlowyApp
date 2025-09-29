@@ -1,46 +1,110 @@
-// src/contexts/EntriesContext.tsx
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// src/contexts/diary/EntriesContext.tsx
+
+import { todayLocalISO } from "@/src/utils/date";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { createContext, useContext, useEffect, useState } from "react";
 
 export type Entry = {
   id: string;
-  date: string;
+  createdAt: string; // YYYY-MM-DD (imutável)
   text: string;
+  createdAtIso?: string; // timestamp completo (opcional, só para auditoria)
 };
 
 type EntriesContextType = {
   entries: Entry[];
-  addEntry: (payload: { date: string; text: string }) => void;
-  updateEntry: (id: string, payload: { date?: string; text?: string }) => void;
-  deleteEntry: (id: string) => void;
-  clearAll?: () => void;
-  loaded: boolean; // indica se os dados já foram carregados do storage
+  addEntry: (payload: { text: string; createdAt?: string }) => Promise<void>;
+  updateEntry: (id: string, payload: { text?: string }) => Promise<void>;
+  deleteEntry: (id: string) => Promise<void>;
+  clearAll?: () => Promise<void>;
+  loaded: boolean;
 };
 
-const STORAGE_KEY = 'flowy_entries_v1';
-
+const STORAGE_KEY = "flowy_entries_v1";
 const EntriesContext = createContext<EntriesContextType | undefined>(undefined);
 
-export const EntriesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const EntriesProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loaded, setLoaded] = useState(false);
+
+  const normalizeLoaded = (raw: any[]): Entry[] => {
+    return raw.map((e) => {
+      const id = e && e.id ? String(e.id) : String(Date.now());
+
+      // se já existe createdAt no formato YMD, preserve
+      if (
+        e &&
+        e.createdAt &&
+        typeof e.createdAt === "string" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(e.createdAt)
+      ) {
+        return {
+          id,
+          createdAt: e.createdAt,
+          text: String(e.text ?? ""),
+          createdAtIso: e.createdAtIso ? String(e.createdAtIso) : undefined,
+        };
+      }
+
+      // se existe createdAt em outro formato, tente extrair YMD
+      if (e && e.createdAt && typeof e.createdAt === "string") {
+        try {
+          const d = new Date(e.createdAt);
+          if (!isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, "0");
+            const day = String(d.getDate()).padStart(2, "0");
+            return {
+              id,
+              createdAt: `${y}-${m}-${day}`,
+              text: String(e.text ?? ""),
+              createdAtIso: e.createdAt,
+            };
+          }
+        } catch {}
+      }
+
+      // se tem campo date (MM/DD/YYYY ou similar) -> tenta parse e converter
+      if (e && e.date && typeof e.date === "string") {
+        const parsed = new Date(e.date);
+        if (!isNaN(parsed.getTime())) {
+          const y = parsed.getFullYear();
+          const m = String(parsed.getMonth() + 1).padStart(2, "0");
+          const day = String(parsed.getDate()).padStart(2, "0");
+          return {
+            id,
+            createdAt: `${y}-${m}-${day}`,
+            text: String(e.text ?? ""),
+            createdAtIso: parsed.toISOString(),
+          };
+        }
+      }
+
+      // fallback — só aqui, quando realmente não existe data extraível
+      return {
+        id,
+        createdAt: todayLocalISO(),
+        text: String(e && e.text ? e.text : ""),
+        createdAtIso: new Date().toISOString(),
+      };
+    });
+  };
 
   useEffect(() => {
     const load = async () => {
       try {
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
         if (raw) {
-          const parsed: Entry[] = JSON.parse(raw);
-          setEntries(parsed);
+          const parsed = JSON.parse(raw);
+          setEntries(Array.isArray(parsed) ? normalizeLoaded(parsed) : []);
         } else {
-          // bglh pra enxer linguiça
-          setEntries([
-            { id: '1', date: getDate(), text: 'Felt lighter after a walk.' },
-            { id: '2', date: getDate(), text: 'Challenging day, but I kept going.' },
-          ]);
+          setEntries([]);
         }
       } catch (err) {
-        console.warn('Erro ao carregar entries do storage:', err);
+        console.warn("Erro ao carregar entries do storage:", err);
+        setEntries([]);
       } finally {
         setLoaded(true);
       }
@@ -48,33 +112,48 @@ export const EntriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
     load();
   }, []);
 
-  useEffect(() => {
-    const save = async () => {
-      if (!loaded) return; // evita sobrescrever antes de carregar
-      try {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-      } catch (err) {
-        console.warn('Erro ao salvar entries no storage:', err);
-      }
-    };
-    save();
-  }, [entries, loaded]);
+  const persist = async (next: Entry[]) => {
+    setEntries(next);
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch (err) {
+      console.warn("Erro ao persistir entries no storage:", err);
+      throw err;
+    }
+  };
 
-  const addEntry = (payload: { date: string; text: string }) => {
+  const addEntry = async (payload: { text: string; createdAt?: string }) => {
+    const createdAt =
+      payload.createdAt && /^\d{4}-\d{2}-\d{2}$/.test(payload.createdAt)
+        ? payload.createdAt
+        : todayLocalISO();
     const newEntry: Entry = {
       id: String(Date.now()),
-      date: payload.date,
       text: payload.text,
+      createdAt,
+      createdAtIso: new Date().toISOString(),
     };
-    setEntries(prev => [newEntry, ...prev]);
+
+    // updater funcional para evitar race conditions
+    setEntries((prev) => {
+      const next = [newEntry, ...prev];
+      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch((err) => {
+        console.warn("Erro ao persistir entries no storage (addEntry):", err);
+      });
+      return next;
+    });
   };
 
-  const updateEntry = (id: string, payload: { date?: string; text?: string }) => {
-    setEntries(prev => prev.map(e => (e.id === id ? { ...e, ...payload } : e)));
+  const updateEntry = async (id: string, payload: { text?: string }) => {
+    const next = entries.map((e) =>
+      e.id === id ? { ...e, text: payload.text ?? e.text } : e
+    );
+    await persist(next);
   };
 
-  const deleteEntry = (id: string) => {
-    setEntries(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = async (id: string) => {
+    const next = entries.filter((e) => e.id !== id);
+    await persist(next);
   };
 
   const clearAll = async () => {
@@ -82,20 +161,15 @@ export const EntriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
       await AsyncStorage.removeItem(STORAGE_KEY);
       setEntries([]);
     } catch (err) {
-      console.warn('Erro ao limpar storage:', err);
+      console.warn("Erro ao limpar storage:", err);
+      throw err;
     }
   };
 
-  function getDate() {
-  const today = new Date();
-  const month = today.getMonth() + 1;
-  const year = today.getFullYear();
-  const date = today.getDate();
-  return `${month}/${date}/${year}`;
-}
-
   return (
-    <EntriesContext.Provider value={{ entries, addEntry, updateEntry, deleteEntry, clearAll, loaded }}>
+    <EntriesContext.Provider
+      value={{ entries, addEntry, updateEntry, deleteEntry, clearAll, loaded }}
+    >
       {children}
     </EntriesContext.Provider>
   );
@@ -103,6 +177,6 @@ export const EntriesProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
 export function useEntries() {
   const ctx = useContext(EntriesContext);
-  if (!ctx) throw new Error('useEntries must be used within EntriesProvider');
+  if (!ctx) throw new Error("useEntries must be used within EntriesProvider");
   return ctx;
 }

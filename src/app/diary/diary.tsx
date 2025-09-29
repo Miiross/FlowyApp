@@ -51,7 +51,7 @@ export default function Diary() {
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: "#f0f0f0", 
+    backgroundColor: "#413636", 
     alignItems: "center", 
     justifyContent: "center",
   },
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "90%",           // retângulo centralizado horizontalmente
     maxHeight: "80%",       // altura máxima pra não ocupar toda tela
-    backgroundColor: "#fff",
+    backgroundColor: "#cbe6e6",
     borderRadius: 12,
     padding: 10,
     elevation: 4,           // sombra no Android

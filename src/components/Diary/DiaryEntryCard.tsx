@@ -2,6 +2,7 @@
 import { Entry } from '@/src/contexts/diary/EntriesContext';
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { formatDateFromYMD } from '@/src/utils/date';
 
 type Props = {
   entry: Entry;
@@ -9,10 +10,18 @@ type Props = {
   onLongPress?: () => void;
 };
 
+function formatDate(iso: string) {
+  try {
+    return formatDateFromYMD(iso);
+  } catch {
+    return iso;
+  }
+}
+
 export default function DiaryEntryCard({ entry, onPress, onLongPress }: Props) {
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} onLongPress={onLongPress}>
-      <Text style={styles.date}>{entry.date}</Text>
+      <Text style={styles.date}>{formatDate(entry.createdAt)}</Text>
       <Text numberOfLines={2} style={styles.text}>{entry.text}</Text>
     </TouchableOpacity>
   );

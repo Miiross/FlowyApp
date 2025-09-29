@@ -1,40 +1,56 @@
+// app/diary/newPage.tsx
 import React, { useState } from 'react';
-import { View, TextInput, Button, StyleSheet, Text, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, TextInput, Button, StyleSheet, Text, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEntries } from '@/src/contexts/diary/EntriesContext';
-
-
+import { todayLocalISO } from '@/src/utils/date';
 
 export default function NewPage() {
   const { addEntry } = useEntries();
   const router = useRouter();
 
-  const today = new Date().toISOString().slice(0, 10);
-  const [date, setDate] = useState(today);
+  // mantemos data local apenas para exibição/edição opcional
+  const today = todayLocalISO();
+  const [date] = useState(today); // não exibido por padrão, mas disponível se quiser mostrar
   const [text, setText] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    if (text.trim().length === 0) return;
-    addEntry({ date, text: text.trim() });
-    router.back();
+  const handleSave = async () => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) {
+      Alert.alert('Erro', 'O texto não pode ficar vazio.');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      // não é obrigatório enviar date: EntriesContext vai gerar todayLocalISO() se não enviado
+      await addEntry({ text: trimmed, createdAt: date });
+      router.back(); // volta pra página anterior
+    } catch (err) {
+      console.warn('Erro ao salvar entry:', err);
+      Alert.alert('Erro', 'Não foi possível salvar. Tente novamente.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <View style={styles.form}>
-        <Text style={styles.label}>Data</Text>
-        <TextInput style={styles.input} value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />
-
-        <Text style={styles.label}>Texto</Text>
+        <Text style={styles.label}>Nova entrada</Text>
         <TextInput
-          style={[styles.input, styles.textarea]}
           value={text}
           onChangeText={setText}
+          style={[styles.input, styles.textarea]}
           placeholder="Escreva sua entrada..."
           multiline
         />
 
-        <Button title="Salvar entrada" onPress={handleSave} />
+        <Button title={saving ? 'Salvando...' : 'Salvar entrada'} onPress={handleSave} disabled={saving} />
       </View>
     </KeyboardAvoidingView>
   );
@@ -50,6 +66,7 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 6,
     marginBottom: 12,
+    backgroundColor: '#fff',
   },
   textarea: { height: 140, textAlignVertical: 'top' },
 });
