@@ -9,7 +9,7 @@ export default function AddEntryButton({ onPress }: Props) {
   return (
     <View style={styles.container} pointerEvents="box-none">
       <TouchableOpacity style={styles.button} onPress={onPress}>
-        <Text style={styles.plus}>s</Text>
+        <Text style={styles.plus}>+</Text>
       </TouchableOpacity>
     </View>
   );

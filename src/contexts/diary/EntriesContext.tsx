@@ -8,13 +8,21 @@ export type Entry = {
   id: string;
   createdAt: string; // YYYY-MM-DD (imutável)
   text: string;
-  createdAtIso?: string; // timestamp completo (opcional, só para auditoria)
+  mood?: "happy" | "neutral" | "sad" | "angry" | "anxious";
+  createdAtIso?: string;
 };
 
 type EntriesContextType = {
   entries: Entry[];
-  addEntry: (payload: { text: string; createdAt?: string }) => Promise<void>;
-  updateEntry: (id: string, payload: { text?: string }) => Promise<void>;
+  addEntry: (payload: {
+    text: string;
+    createdAt?: string;
+    mood?: Entry["mood"];
+  }) => Promise<void>; // <-- payload aceita mood
+  updateEntry: (
+    id: string,
+    payload: { text?: string; mood?: Entry["mood"] }
+  ) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
   clearAll?: () => Promise<void>;
   loaded: boolean;
@@ -44,6 +52,7 @@ export const EntriesProvider: React.FC<{ children: React.ReactNode }> = ({
           id,
           createdAt: e.createdAt,
           text: String(e.text ?? ""),
+          mood: e.mood ? (String(e.mood) as Entry["mood"]) : undefined,
           createdAtIso: e.createdAtIso ? String(e.createdAtIso) : undefined,
         };
       }
@@ -122,7 +131,11 @@ export const EntriesProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  const addEntry = async (payload: { text: string; createdAt?: string }) => {
+  const addEntry = async (payload: {
+    text: string;
+    createdAt?: string;
+    mood?: Entry["mood"];
+  }) => {
     const createdAt =
       payload.createdAt && /^\d{4}-\d{2}-\d{2}$/.test(payload.createdAt)
         ? payload.createdAt
@@ -131,10 +144,10 @@ export const EntriesProvider: React.FC<{ children: React.ReactNode }> = ({
       id: String(Date.now()),
       text: payload.text,
       createdAt,
+      mood: payload.mood, // <-- guarda o mood
       createdAtIso: new Date().toISOString(),
     };
 
-    // updater funcional para evitar race conditions
     setEntries((prev) => {
       const next = [newEntry, ...prev];
       AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch((err) => {
@@ -144,9 +157,14 @@ export const EntriesProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   };
 
-  const updateEntry = async (id: string, payload: { text?: string }) => {
+  const updateEntry = async (
+    id: string,
+    payload: { text?: string; mood?: Entry["mood"] }
+  ) => {
     const next = entries.map((e) =>
-      e.id === id ? { ...e, text: payload.text ?? e.text } : e
+      e.id === id
+        ? { ...e, text: payload.text ?? e.text, mood: payload.mood ?? e.mood }
+        : e
     );
     await persist(next);
   };
